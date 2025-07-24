@@ -1,4 +1,3 @@
-# app.py
 # Complete code for the MediRepo Streamlit Application by Friday
 # Updated to use st.rerun() for modern Streamlit versions
 
@@ -133,8 +132,12 @@ def patient_dashboard():
             st.subheader("Update Your Info")
             height = st.number_input("Height (cm)", value=float(user.get('height_cm') or 0), format="%.1f")
             dob = st.date_input("Date of Birth", value=datetime.strptime(user.get('dob') or '2000-01-01', '%Y-%m-%d'))
-            gender = st.selectbox("Gender", ["Male", "Female", "Other", "Prefer not to say"], index=0 if not user.get('gender') else ["Male", "Female", "Other", "Prefer not to say"].index(user.get('gender')))
-            diet = st.selectbox("Dietary Preference", ["Vegetarian", "Non-Vegetarian", "Ovo-Vegetarian", "Jain"], index=0 if not user.get('diet_pref') else ["Vegetarian", "Non-Vegetarian", "Ovo-Vegetarian", "Jain"].index(user.get('diet_pref')))
+            gender_options = ["Male", "Female", "Other", "Prefer not to say"]
+            gender_index = gender_options.index(user['gender']) if user.get('gender') and user.get('gender') in gender_options else 0
+            gender = st.selectbox("Gender", gender_options, index=gender_index)
+            diet_options = ["Vegetarian", "Non-Vegetarian", "Ovo-Vegetarian", "Jain"]
+            diet_index = diet_options.index(user['diet_pref']) if user.get('diet_pref') and user.get('diet_pref') in diet_options else 0
+            diet = st.selectbox("Dietary Preference", diet_options, index=diet_index)
             location = st.text_input("Location", value=user.get('location', ''))
 
             if st.form_submit_button("Save Profile"):
@@ -143,6 +146,9 @@ def patient_dashboard():
                 # Update session state
                 st.session_state.user_info['height_cm'] = height
                 st.session_state.user_info['dob'] = dob.strftime('%Y-%m-%d')
+                st.session_state.user_info['gender'] = gender
+                st.session_state.user_info['diet_pref'] = diet
+                st.session_state.user_info['location'] = location
                 st.success("Profile Updated!")
                 st.rerun()
         
@@ -189,13 +195,13 @@ def patient_dashboard():
         else:
             # Group by visit to show a clean record
             for visit_date, group in prescriptions_df.groupby('Visit Date'):
-                with st.expander(f"**Visit on {visit_date}** with Dr. {group['Doctor'].iloc[0]}"):
-                    st.write(f"**Diagnosis:** {group['Summary'].iloc[0]}")
+                with st.expander(f"**Visit on {visit_date.split(' ')[0]}** with {group['Doctor'].iloc[0]}"):
+                    st.write(f"**Diagnosis:** {group['Summary'].iloc[0] or 'N/A'}")
                     st.dataframe(group[['Medicine', 'Frequency', 'Timing']].reset_index(drop=True))
 
     with tab3:
         st.subheader("Your Fitness & Wellness Hub")
-        if user.get('height_cm') and not vitals_df.empty and vitals_df['Weight (kg)'].notna().any():
+        if user.get('height_cm') and user.get('height_cm') > 0 and not vitals_df.empty and vitals_df['Weight (kg)'].notna().any():
             latest_weight = vitals_df.dropna(subset=['Weight (kg)'])['Weight (kg)'].iloc[-1]
             height_m = user['height_cm'] / 100
             bmi = latest_weight / (height_m ** 2)
@@ -206,7 +212,7 @@ def patient_dashboard():
             elif 25 <= bmi < 29.9: bmi_category = "Overweight"
             else: bmi_category = "Obesity"
 
-            st.metric(label="Your Current BMI", value=f"{bmi:.2f}", help=f"Your current BMI category is {bmi_category}. Formula: $BMI = \\frac{{weight (kg)}}{{height (m)^2}}$")
+            st.metric(label="Your Current BMI", value=f"{bmi:.2f}", help=f"Your current BMI category is {bmi_category}. Formula: $BMI = \\frac{{\\text{{weight (kg)}}}}{{\\text{{height (m)}}^2}}$")
         else:
             st.warning("Please add your height in the profile and at least one weight entry to calculate BMI.")
         
@@ -219,17 +225,19 @@ def patient_dashboard():
                 goal_weight = st.number_input("What is your goal weight (kg)?", min_value=30.0, step=1.0)
                 
                 submitted = st.form_submit_button("Calculate My Plan")
-                if submitted and goal_weight > 0 and user.get('dob') and not vitals_df.empty:
-                    # Basic BMR and Calorie suggestion
+                if submitted and goal_weight > 0 and user.get('dob') and user.get('gender') and not vitals_df.empty:
                     age = datetime.now().year - datetime.strptime(user['dob'], '%Y-%m-%d').year
                     latest_weight = vitals_df.dropna(subset=['Weight (kg)'])['Weight (kg)'].iloc[-1]
                     height_cm = user['height_cm']
                     
+                    bmr = 0
                     if user['gender'] == 'Male':
                         bmr = 88.362 + (13.397 * latest_weight) + (4.799 * height_cm) - (5.677 * age)
-                    else: # Female
+                    elif user['gender'] == 'Female':
                         bmr = 447.593 + (9.247 * latest_weight) + (3.098 * height_cm) - (4.330 * age)
-                    
+                    else: # Use the Mifflin-St Jeor equation as a neutral alternative
+                        bmr = (10 * latest_weight) + (6.25 * height_cm) - (5 * age) + 5
+
                     tdee = bmr * 1.2 # Sedentary assumption
                     target_calories = tdee - 500 # For ~0.5kg/week loss
 
@@ -243,7 +251,7 @@ def patient_dashboard():
                     *Disclaimer: This is a basic suggestion. Please consult a healthcare professional before starting any new diet or exercise regimen.*
                     """)
                 elif submitted:
-                    st.error("Please ensure your profile (height, DoB) and weight records are up to date.")
+                    st.error("Please ensure your profile (height, DoB, Gender) and weight records are up to date.")
 
     with tab4:
         st.subheader("Add a New Health Record")
@@ -264,12 +272,14 @@ def patient_dashboard():
                             hr if hr > 0 else None,
                             sugar if sugar > 0 else None))
                 st.success("New record added!")
+                if 'show_fitness_form' in st.session_state:
+                    del st.session_state['show_fitness_form']
                 st.rerun()
 
 
 def patient_journey():
     """Handles the entire flow for a patient, from login to dashboard."""
-    auth_choice = st.radio("Choose Action", ["Login", "Register"], horizontal=True)
+    auth_choice = st.radio("Choose Action", ["Login", "Register"], horizontal=True, key="patient_auth")
 
     if auth_choice == "Register":
         with st.form("register_patient"):
@@ -299,7 +309,7 @@ def patient_journey():
             unique_id = st.text_input("Unique ID*")
             
             if st.form_submit_button("Login"):
-                user_data = db_query("SELECT * FROM patients WHERE first_name=? AND unique_id=?", (fname, unique_id))
+                user_data = db_query("SELECT * FROM patients WHERE lower(first_name)=? AND upper(unique_id)=?", (fname.lower().strip(), unique_id.upper().strip()))
                 if user_data:
                     user_details = user_data[0]
                     st.session_state.logged_in = True
@@ -321,13 +331,35 @@ def doctor_portal():
     st.header(f"Welcome, {full_name}")
     st.write(f"Speciality: {user['speciality']}")
 
+    st.sidebar.title("Doctor Portal")
+    if st.sidebar.button("Logout"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
     st.divider()
+
+    # --- BUTTONS to add/remove medicine lines ---
+    # These are outside the form to prevent form submission on just adding/removing lines
+    c1, c2, c3 = st.columns([2, 2, 8])
+    if c1.button("➕ Add Medicine"):
+        if 'medicines' not in st.session_state:
+            st.session_state.medicines = []
+        st.session_state.medicines.append({'name': '', 'freq': 'Once a day', 'timing': 'After Breakfast'})
+        st.rerun()
+
+    if c2.button("➖ Remove Last"):
+        if 'medicines' in st.session_state and st.session_state.medicines:
+            st.session_state.medicines.pop()
+            st.rerun()
 
     with st.form("prescription_form"):
         st.subheader("Create New Prescription")
-        patient_id = st.text_input("Enter Patient's Unique ID*")
+        # *** CORRECTION 1: Added `key` to preserve state on rerun ***
+        patient_id = st.text_input("Enter Patient's Unique ID*", key="rx_patient_id")
         visit_date = st.date_input("Date of Visit", datetime.now())
-        summary = st.text_area("Diagnosis Summary")
+        # *** CORRECTION 2: Added `key` to preserve state on rerun ***
+        summary = st.text_area("Diagnosis Summary", key="rx_summary")
         
         st.markdown("---")
         st.markdown("**Medicines**")
@@ -336,46 +368,43 @@ def doctor_portal():
             st.session_state.medicines = [{'name': '', 'freq': 'Once a day', 'timing': 'After Breakfast'}]
 
         for i, med in enumerate(st.session_state.medicines):
-            cols = st.columns([3, 2, 2])
-            med['name'] = cols[0].text_input(f"Medicine Name {i+1}", med['name'], key=f"med_name_{i}")
-            med['freq'] = cols[1].selectbox(f"Frequency", ["Once a day", "Twice a day", "Thrice a day"], key=f"med_freq_{i}", index=["Once a day", "Twice a day", "Thrice a day"].index(med['freq']))
-            med['timing'] = cols[2].selectbox(f"Timing", ["Empty Stomach", "After Breakfast", "After Lunch", "After Dinner", "Before Sleep"], key=f"med_time_{i}", index=["Empty Stomach", "After Breakfast", "After Lunch", "After Dinner", "Before Sleep"].index(med['timing']))
+            cols = st.columns([4, 3, 3])
+            med['name'] = cols[0].text_input("Medicine Name", value=med['name'], key=f"med_name_{i}", label_visibility="collapsed")
+            med['freq'] = cols[1].selectbox("Frequency", ["Once a day", "Twice a day", "Thrice a day"], index=["Once a day", "Twice a day", "Thrice a day"].index(med['freq']), key=f"med_freq_{i}", label_visibility="collapsed")
+            med['timing'] = cols[2].selectbox("Timing", ["Empty Stomach", "After Breakfast", "After Lunch", "After Dinner", "Before Sleep"], index=["Empty Stomach", "After Breakfast", "After Lunch", "After Dinner", "Before Sleep"].index(med['timing']), key=f"med_time_{i}", label_visibility="collapsed")
         
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            add_med_button = st.form_submit_button("Add Medicine")
-        with col2:
-            save_rx_button = st.form_submit_button("Save Prescription")
-
-        if add_med_button:
-             st.session_state.medicines.append({'name': '', 'freq': 'Once a day', 'timing': 'After Breakfast'})
-             st.rerun()
+        st.markdown("---")
+        save_rx_button = st.form_submit_button("Save Full Prescription", use_container_width=True)
 
         if save_rx_button:
             if not patient_id:
                 st.error("Patient Unique ID is required.")
             else:
-                patient_exists = db_query("SELECT 1 FROM patients WHERE unique_id=?", (patient_id,))
+                # *** CORRECTION 3: Made patient ID lookup case-insensitive ***
+                patient_exists = db_query("SELECT 1 FROM patients WHERE upper(unique_id)=?", (patient_id.upper().strip(),))
                 if not patient_exists:
                     st.error(f"No patient found with ID: {patient_id}")
                 else:
+                    prescription_saved = False
                     for med in st.session_state.medicines:
-                        if med['name']:
+                        if med['name'].strip():
                             db_execute("INSERT INTO prescriptions (patient_id, doctor_name, visit_date, summary, medicine, frequency, timing) VALUES (?,?,?,?,?,?,?)",
-                                       (patient_id, full_name, visit_date.strftime('%Y-%m-%d'), summary, med['name'], med['freq'], med['timing']))
-                    st.success("Prescription saved successfully!")
-                    del st.session_state.medicines
-
-
-    if st.button("Logout"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
-
+                                       (patient_id.upper().strip(), full_name, visit_date.strftime('%Y-%m-%d'), summary, med['name'], med['freq'], med['timing']))
+                            prescription_saved = True
+                    
+                    if prescription_saved:
+                        st.success("Prescription saved successfully!")
+                        # Clear form state after successful submission
+                        del st.session_state.medicines
+                        del st.session_state.rx_patient_id
+                        del st.session_state.rx_summary
+                        st.rerun()
+                    else:
+                        st.warning("No medicines were entered. Prescription not saved.")
 
 def doctor_journey():
     """Handles the entire flow for a doctor."""
-    auth_choice = st.radio("Choose Action", ["Login", "Register"], horizontal=True)
+    auth_choice = st.radio("Choose Action", ["Login", "Register"], horizontal=True, key="doctor_auth")
 
     if auth_choice == "Register":
         with st.form("register_doctor"):
@@ -405,7 +434,7 @@ def doctor_journey():
             phone = st.text_input("Phone Number*")
             
             if st.form_submit_button("Login"):
-                user_data = db_query("SELECT * FROM doctors WHERE first_name=? AND last_name=? AND phone=?", (fname, lname, phone))
+                user_data = db_query("SELECT * FROM doctors WHERE lower(first_name)=? AND lower(last_name)=? AND phone=?", (fname.lower().strip(), lname.lower().strip(), phone.strip()))
                 if user_data:
                     user_details = user_data[0]
                     st.session_state.logged_in = True
@@ -421,7 +450,7 @@ def doctor_journey():
 # --- MAIN APPLICATION ---
 def main():
     """The main function that orchestrates the app's flow."""
-    st.set_page_config(page_title="MediRepo", layout="wide")
+    st.set_page_config(page_title="MediRepo", layout="wide", initial_sidebar_state="auto")
     st.title("Welcome to MediRepo 🩺")
 
     init_db()
