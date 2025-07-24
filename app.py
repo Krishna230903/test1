@@ -1,5 +1,5 @@
 # Complete code for the MediRepo Streamlit Application by Friday
-# Updated to use st.rerun() for modern Streamlit versions
+# Final version incorporating all bug fixes and UI improvements
 
 import streamlit as st
 import sqlite3
@@ -171,22 +171,22 @@ def patient_dashboard():
             # Weight Chart
             if 'Weight (kg)' in vitals_df.columns and vitals_df['Weight (kg)'].notna().any():
                 fig_weight = px.line(vitals_df, x='Date', y='Weight (kg)', title='Weight Journey', markers=True)
-                st.plotly_chart(fig_weight)
+                st.plotly_chart(fig_weight, use_container_width=True)
             
             # BP Chart
             if 'BP Systolic' in vitals_df.columns and vitals_df['BP Systolic'].notna().any():
                 fig_bp = px.line(vitals_df, x='Date', y=['BP Systolic', 'BP Diastolic'], title='Blood Pressure Trends', markers=True)
-                st.plotly_chart(fig_bp)
+                st.plotly_chart(fig_bp, use_container_width=True)
             
             # Heart Rate Chart
             if 'Heart Rate (BPM)' in vitals_df.columns and vitals_df['Heart Rate (BPM)'].notna().any():
                 fig_hr = px.line(vitals_df, x='Date', y='Heart Rate (BPM)', title='Heart Rate Trends', markers=True)
-                st.plotly_chart(fig_hr)
+                st.plotly_chart(fig_hr, use_container_width=True)
 
             # Sugar Chart
             if 'Sugar Level' in vitals_df.columns and vitals_df['Sugar Level'].notna().any():
                 fig_sugar = px.line(vitals_df, x='Date', y='Sugar Level', title='Blood Sugar Trends', markers=True)
-                st.plotly_chart(fig_sugar)
+                st.plotly_chart(fig_sugar, use_container_width=True)
 
     with tab2:
         st.subheader("Your Prescription History")
@@ -197,7 +197,7 @@ def patient_dashboard():
             for visit_date, group in prescriptions_df.groupby('Visit Date'):
                 with st.expander(f"**Visit on {visit_date.split(' ')[0]}** with {group['Doctor'].iloc[0]}"):
                     st.write(f"**Diagnosis:** {group['Summary'].iloc[0] or 'N/A'}")
-                    st.dataframe(group[['Medicine', 'Frequency', 'Timing']].reset_index(drop=True))
+                    st.dataframe(group[['Medicine', 'Frequency', 'Timing']].reset_index(drop=True), use_container_width=True)
 
     with tab3:
         st.subheader("Your Fitness & Wellness Hub")
@@ -217,7 +217,8 @@ def patient_dashboard():
             st.warning("Please add your height in the profile and at least one weight entry to calculate BMI.")
         
         st.divider()
-        if st.button("How can I get fitter?"):
+        # *** UPDATED BUTTON TEXT ***
+        if st.button("Create My Fitness Plan"):
             st.session_state.show_fitness_form = True
 
         if st.session_state.get("show_fitness_form"):
@@ -275,7 +276,6 @@ def patient_dashboard():
                 if 'show_fitness_form' in st.session_state:
                     del st.session_state['show_fitness_form']
                 st.rerun()
-
 
 def patient_journey():
     """Handles the entire flow for a patient, from login to dashboard."""
@@ -339,8 +339,6 @@ def doctor_portal():
 
     st.divider()
 
-    # --- BUTTONS to add/remove medicine lines ---
-    # These are outside the form to prevent form submission on just adding/removing lines
     c1, c2, c3 = st.columns([2, 2, 8])
     if c1.button("➕ Add Medicine"):
         if 'medicines' not in st.session_state:
@@ -355,10 +353,8 @@ def doctor_portal():
 
     with st.form("prescription_form"):
         st.subheader("Create New Prescription")
-        # *** CORRECTION 1: Added `key` to preserve state on rerun ***
         patient_id = st.text_input("Enter Patient's Unique ID*", key="rx_patient_id")
         visit_date = st.date_input("Date of Visit", datetime.now())
-        # *** CORRECTION 2: Added `key` to preserve state on rerun ***
         summary = st.text_area("Diagnosis Summary", key="rx_summary")
         
         st.markdown("---")
@@ -369,9 +365,9 @@ def doctor_portal():
 
         for i, med in enumerate(st.session_state.medicines):
             cols = st.columns([4, 3, 3])
-            med['name'] = cols[0].text_input("Medicine Name", value=med['name'], key=f"med_name_{i}", label_visibility="collapsed")
-            med['freq'] = cols[1].selectbox("Frequency", ["Once a day", "Twice a day", "Thrice a day"], index=["Once a day", "Twice a day", "Thrice a day"].index(med['freq']), key=f"med_freq_{i}", label_visibility="collapsed")
-            med['timing'] = cols[2].selectbox("Timing", ["Empty Stomach", "After Breakfast", "After Lunch", "After Dinner", "Before Sleep"], index=["Empty Stomach", "After Breakfast", "After Lunch", "After Dinner", "Before Sleep"].index(med['timing']), key=f"med_time_{i}", label_visibility="collapsed")
+            med['name'] = cols[0].text_input("Medicine Name", value=med.get('name', ''), key=f"med_name_{i}", label_visibility="collapsed", placeholder=f"Medicine Name {i+1}")
+            med['freq'] = cols[1].selectbox("Frequency", ["Once a day", "Twice a day", "Thrice a day"], index=["Once a day", "Twice a day", "Thrice a day"].index(med.get('freq', 'Once a day')), key=f"med_freq_{i}", label_visibility="collapsed")
+            med['timing'] = cols[2].selectbox("Timing", ["Empty Stomach", "After Breakfast", "After Lunch", "After Dinner", "Before Sleep"], index=["Empty Stomach", "After Breakfast", "After Lunch", "After Dinner", "Before Sleep"].index(med.get('timing', 'After Breakfast')), key=f"med_time_{i}", label_visibility="collapsed")
         
         st.markdown("---")
         save_rx_button = st.form_submit_button("Save Full Prescription", use_container_width=True)
@@ -380,7 +376,6 @@ def doctor_portal():
             if not patient_id:
                 st.error("Patient Unique ID is required.")
             else:
-                # *** CORRECTION 3: Made patient ID lookup case-insensitive ***
                 patient_exists = db_query("SELECT 1 FROM patients WHERE upper(unique_id)=?", (patient_id.upper().strip(),))
                 if not patient_exists:
                     st.error(f"No patient found with ID: {patient_id}")
@@ -396,8 +391,8 @@ def doctor_portal():
                         st.success("Prescription saved successfully!")
                         # Clear form state after successful submission
                         del st.session_state.medicines
-                        del st.session_state.rx_patient_id
-                        del st.session_state.rx_summary
+                        if "rx_patient_id" in st.session_state: del st.session_state.rx_patient_id
+                        if "rx_summary" in st.session_state: del st.session_state.rx_summary
                         st.rerun()
                     else:
                         st.warning("No medicines were entered. Prescription not saved.")
