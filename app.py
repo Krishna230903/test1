@@ -1,5 +1,6 @@
 # app.py
 # Complete code for the MediRepo Streamlit Application by Friday
+# Updated to use st.rerun() for modern Streamlit versions
 
 import streamlit as st
 import sqlite3
@@ -143,12 +144,12 @@ def patient_dashboard():
                 st.session_state.user_info['height_cm'] = height
                 st.session_state.user_info['dob'] = dob.strftime('%Y-%m-%d')
                 st.success("Profile Updated!")
-                st.experimental_rerun()
+                st.rerun()
         
         if st.button("Logout"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
-            st.experimental_rerun()
+            st.rerun()
 
     # --- MAIN DASHBOARD TABS ---
     vitals_df = get_patient_vitals(user['unique_id'])
@@ -263,8 +264,7 @@ def patient_dashboard():
                             hr if hr > 0 else None,
                             sugar if sugar > 0 else None))
                 st.success("New record added!")
-                # Could add a rerun here if you want the charts to update instantly
-                st.experimental_rerun()
+                st.rerun()
 
 
 def patient_journey():
@@ -297,7 +297,6 @@ def patient_journey():
             st.subheader("Patient Login")
             fname = st.text_input("First Name*")
             unique_id = st.text_input("Unique ID*")
-            # Last name is not used for login to simplify it as it's optional
             
             if st.form_submit_button("Login"):
                 user_data = db_query("SELECT * FROM patients WHERE first_name=? AND unique_id=?", (fname, unique_id))
@@ -305,14 +304,13 @@ def patient_journey():
                     user_details = user_data[0]
                     st.session_state.logged_in = True
                     st.session_state.role = 'Patient'
-                    # Store user info in a dictionary for easy access
                     st.session_state.user_info = {
                         'unique_id': user_details[0], 'first_name': user_details[1], 'last_name': user_details[2],
                         'email': user_details[3], 'phone': user_details[4], 'dob': user_details[5],
                         'location': user_details[6], 'height_cm': user_details[7], 'diet_pref': user_details[8],
                         'gender': user_details[9]
                     }
-                    st.experimental_rerun()
+                    st.rerun()
                 else:
                     st.error("Invalid credentials. Please check your First Name and Unique ID.")
 
@@ -325,7 +323,6 @@ def doctor_portal():
 
     st.divider()
 
-    # Form to enter prescription
     with st.form("prescription_form"):
         st.subheader("Create New Prescription")
         patient_id = st.text_input("Enter Patient's Unique ID*")
@@ -335,7 +332,6 @@ def doctor_portal():
         st.markdown("---")
         st.markdown("**Medicines**")
 
-        # Dynamic medicine entry
         if 'medicines' not in st.session_state:
             st.session_state.medicines = [{'name': '', 'freq': 'Once a day', 'timing': 'After Breakfast'}]
 
@@ -345,34 +341,36 @@ def doctor_portal():
             med['freq'] = cols[1].selectbox(f"Frequency", ["Once a day", "Twice a day", "Thrice a day"], key=f"med_freq_{i}", index=["Once a day", "Twice a day", "Thrice a day"].index(med['freq']))
             med['timing'] = cols[2].selectbox(f"Timing", ["Empty Stomach", "After Breakfast", "After Lunch", "After Dinner", "Before Sleep"], key=f"med_time_{i}", index=["Empty Stomach", "After Breakfast", "After Lunch", "After Dinner", "Before Sleep"].index(med['timing']))
         
-        if st.form_submit_button("Add Another Medicine"):
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            add_med_button = st.form_submit_button("Add Medicine")
+        with col2:
+            save_rx_button = st.form_submit_button("Save Prescription")
+
+        if add_med_button:
              st.session_state.medicines.append({'name': '', 'freq': 'Once a day', 'timing': 'After Breakfast'})
-             st.experimental_rerun()
+             st.rerun()
 
-        st.markdown("---")
-
-        if st.form_submit_button("Save Prescription"):
+        if save_rx_button:
             if not patient_id:
                 st.error("Patient Unique ID is required.")
             else:
-                # Check if patient exists
                 patient_exists = db_query("SELECT 1 FROM patients WHERE unique_id=?", (patient_id,))
                 if not patient_exists:
                     st.error(f"No patient found with ID: {patient_id}")
                 else:
-                    # Save each medicine as a separate row
                     for med in st.session_state.medicines:
-                        if med['name']: # Only save if medicine name is entered
+                        if med['name']:
                             db_execute("INSERT INTO prescriptions (patient_id, doctor_name, visit_date, summary, medicine, frequency, timing) VALUES (?,?,?,?,?,?,?)",
                                        (patient_id, full_name, visit_date.strftime('%Y-%m-%d'), summary, med['name'], med['freq'], med['timing']))
                     st.success("Prescription saved successfully!")
-                    # Clear medicines for the next entry
                     del st.session_state.medicines
+
 
     if st.button("Logout"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
-        st.experimental_rerun()
+        st.rerun()
 
 
 def doctor_journey():
@@ -416,7 +414,7 @@ def doctor_journey():
                         'id': user_details[0], 'first_name': user_details[1], 'last_name': user_details[2],
                         'email': user_details[3], 'phone': user_details[4], 'speciality': user_details[5]
                     }
-                    st.experimental_rerun()
+                    st.rerun()
                 else:
                     st.error("Invalid credentials.")
 
@@ -426,23 +424,19 @@ def main():
     st.set_page_config(page_title="MediRepo", layout="wide")
     st.title("Welcome to MediRepo 🩺")
 
-    # Initialize the database
     init_db()
 
-    # Initialize session state variables
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
         st.session_state.role = None
         st.session_state.user_info = None
 
-    # Routing logic
     if st.session_state.logged_in:
         if st.session_state.role == 'Patient':
             patient_dashboard()
         elif st.session_state.role == 'Doctor':
             doctor_portal()
     else:
-        # Main selection for non-logged-in users
         role = st.selectbox("I am a:", ["--Select--", "Patient", "Doctor"])
         if role == "Patient":
             patient_journey()
